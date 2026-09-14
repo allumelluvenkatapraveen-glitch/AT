@@ -1,64 +1,41 @@
 import { useEffect, useState } from 'react';
 import { Link, Route, Routes } from 'react-router-dom';
-import axios from 'axios';
 import ProductDetails from './ProductDetails';
+import CustomerLogin from './pages/CustomerLogin';
+import CustomerRegister from './pages/CustomerRegister';
+import BusinessLogin from './pages/BusinessLogin';
+import BusinessRegister from './pages/BusinessRegister';
+import {
+  getCategories,
+  searchProducts as searchProductsApi,
+} from './api/catalog.api';
+import { searchExternalBusinesses } from './api/external-businesses.api';
+import type { Category, ProductSummary } from './types/catalog';
+import type { ExternalBusiness } from './types/external-business';
+import Header from './components/layout/Header';
+import Profile from './pages/Profile';
+import BusinessDashboard from './pages/BusinessDashboard';
+import CartPage from './pages/Cart';
+import Favorites from './pages/Favorites';
+import Addresses from './pages/Addresses';
+import Checkout from './pages/Checkout';
+import Orders from './pages/Orders';
+import Reservations from './pages/Reservations';
+import BusinessProducts from './pages/BusinessProducts';
+import BusinessOrders from './pages/BusinessOrders';
+import AdminOverview from './pages/AdminOverview';
+import { ProtectedRoute, RoleRoute } from './routes/RouteGuards';
 import './App.css';
-
-const API_URL = 'http://localhost:3000/api';
-
-const HYDERABAD_LOCATION = {
-  latitude: 17.385,
-  longitude: 78.4867,
-};
-
-interface Category {
-  id: string;
-  name: string;
-  slug: string;
-}
-
-interface Product {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  price: number;
-  currencyCode: string;
-  category: Category | null;
-  inventory: {
-    quantity: number;
-    isInStock: boolean;
-  };
-  business: {
-    id: string;
-    name: string;
-    slug: string;
-    description: string | null;
-  };
-  location: {
-    id: string;
-    name: string | null;
-    addressLine1: string;
-    addressLine2: string | null;
-    city: string;
-    state: string | null;
-    postalCode: string | null;
-    countryCode: string;
-    latitude: number;
-    longitude: number;
-  };
-  distanceKm?: number;
-}
 
 function MarketplaceHome() {
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [categories, setCategories] = useState<Category[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<ProductSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const [city, setCity] = useState('Hyderabad');
+  const [city, setCity] = useState('');
   const [radius, setRadius] = useState('10');
 
   const [userLocation, setUserLocation] = useState<{
@@ -67,21 +44,64 @@ function MarketplaceHome() {
   } | null>(null);
 
   const [locationStatus, setLocationStatus] = useState('');
+  const [externalBusinesses, setExternalBusinesses] = useState<ExternalBusiness[]>([]);
+  const [externalLoading, setExternalLoading] = useState(false);
+  const [externalError, setExternalError] = useState('');
+
+  const searchExternal = async (latitude: number, longitude: number) => {
+    setExternalLoading(true);
+    setExternalError('');
+
+    try {
+      setExternalBusinesses(await searchExternalBusinesses({
+        q: search.trim() || undefined,
+        latitude,
+        longitude,
+        radiusKm: Number(radius),
+        limit: 10,
+      }));
+    } catch {
+      setExternalBusinesses([]);
+      setExternalError('Nearby business search is temporarily unavailable.');
+    } finally {
+      setExternalLoading(false);
+    }
+  };
 
   const loadCategories = async () => {
     try {
-      const response = await axios.get<Category[]>(
-        `${API_URL}/categories`,
-      );
-
-      setCategories(response.data);
+      setCategories(await getCategories());
     } catch {
       setError('Unable to load categories.');
     }
   };
 
+  const requestLocationForExternalSearch = () => {
+    if (!('geolocation' in navigator)) {
+      setLocationStatus('Location is unavailable. Enter a city to search local listings.');
+      return;
+    }
+
+    setLocationStatus('Allow location access to find nearby external businesses...');
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setUserLocation({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        });
+        setLocationStatus('Using your device location for nearby businesses.');
+        void searchExternal(coords.latitude, coords.longitude);
+      },
+      () => {
+        setLocationStatus('Location permission was unavailable. Enter a city to search local listings.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 },
+    );
+  };
+
   const searchProducts = async (
     categoryIdOverride?: string,
+    allowExternalLocation = true,
   ) => {
     try {
       setLoading(true);
@@ -109,14 +129,17 @@ function MarketplaceHome() {
         params.city = city.trim();
       }
 
-      const response = await axios.get<Product[]>(
-        `${API_URL}/products/search`,
-        {
-          params,
-        },
-      );
+      const localProducts = await searchProductsApi(params);
+      setProducts(localProducts);
+      setExternalBusinesses([]);
 
-      setProducts(response.data);
+      if (localProducts.length === 0) {
+        if (userLocation) {
+          void searchExternal(userLocation.latitude, userLocation.longitude);
+        } else if (allowExternalLocation) {
+          requestLocationForExternalSearch();
+        }
+      }
     } catch {
       setError(
         'Unable to load products. Please try again.',
@@ -150,14 +173,14 @@ function MarketplaceHome() {
         params.categoryId = selectedCategory;
       }
 
-      const response = await axios.get<Product[]>(
-        `${API_URL}/products/search`,
-        {
-          params,
-        },
-      );
+      const localProducts = await searchProductsApi(params);
+      setProducts(localProducts);
 
-      setProducts(response.data);
+      if (localProducts.length === 0) {
+        void searchExternal(latitude, longitude);
+      } else {
+        setExternalBusinesses([]);
+      }
     } catch {
       setError(
         'Unable to search nearby products.',
@@ -195,15 +218,8 @@ function MarketplaceHome() {
           );
         },
         () => {
-          setUserLocation(HYDERABAD_LOCATION);
-
           setLocationStatus(
-            'Location permission unavailable. Using Hyderabad.',
-          );
-
-          void searchNearbyWithCoordinates(
-            HYDERABAD_LOCATION.latitude,
-            HYDERABAD_LOCATION.longitude,
+            'Location permission was unavailable. Enter a city to search instead.',
           );
         },
         {
@@ -216,21 +232,17 @@ function MarketplaceHome() {
       return;
     }
 
-    setUserLocation(HYDERABAD_LOCATION);
-
     setLocationStatus(
-      'Browser location unavailable. Using Hyderabad.',
-    );
-
-    void searchNearbyWithCoordinates(
-      HYDERABAD_LOCATION.latitude,
-      HYDERABAD_LOCATION.longitude,
+      'This browser does not support location. Enter a city to search instead.',
     );
   };
 
   useEffect(() => {
+    /* The initial catalog load synchronizes this screen with the API. */
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadCategories();
-    void searchProducts();
+    void searchProducts(undefined, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const formatPrice = (
@@ -273,57 +285,7 @@ function MarketplaceHome() {
 
   return (
     <div className="app">
-      <header className="header">
-        <div className="header-inner">
-          <Link
-            to="/"
-            className="brand"
-            style={{
-              textDecoration: 'none',
-              color: 'inherit',
-            }}
-          >
-            <div className="brand-icon">L</div>
-
-            <div>
-              <div className="brand-name">
-                Local Shoppyy
-              </div>
-
-              <div className="brand-tagline">
-                Shop local. Find nearby.
-              </div>
-            </div>
-          </Link>
-
-          <nav className="nav">
-            <Link
-              to="/"
-              style={{
-                textDecoration: 'none',
-                color: 'inherit',
-              }}
-            >
-              Discover
-            </Link>
-
-            <button type="button">
-              Businesses
-            </button>
-
-            <button type="button">
-              About
-            </button>
-          </nav>
-
-          <button
-            className="sign-in"
-            type="button"
-          >
-            Sign in
-          </button>
-        </div>
-      </header>
+      <Header />
 
       <main>
         <section className="hero-section">
@@ -630,6 +592,66 @@ function MarketplaceHome() {
             )}
           </div>
         </section>
+
+        {(externalLoading || externalError || externalBusinesses.length > 0) && (
+          <section className="external-businesses-section">
+            <div className="section-container">
+              <div className="section-heading">
+                <div>
+                  <div className="section-label">EXTERNAL DISCOVERY</div>
+                  <h2>Nearby Businesses</h2>
+                </div>
+              </div>
+
+              <p className="external-disclaimer">
+                These businesses are provided by an external places provider and are not registered on Local Shoppyy.
+              </p>
+
+              {externalLoading && (
+                <div className="empty-state">
+                  <div className="loading-spinner" />
+                  <p>Looking for nearby businesses...</p>
+                </div>
+              )}
+
+              {externalError && <div className="error-message">{externalError}</div>}
+
+              {!externalLoading && externalBusinesses.length > 0 && (
+                <div className="external-business-grid">
+                  {externalBusinesses.map((business) => (
+                    <article className="external-business-card" key={`${business.provider}-${business.externalId}`}>
+                      <div className="external-business-card-header">
+                        <span className="external-business-badge">External business</span>
+                        <span>{business.distanceKm} km away</span>
+                      </div>
+                      <h3>{business.name}</h3>
+                      {business.category && <p className="external-category">{business.category}</p>}
+                      {business.address && <p>{business.address}</p>}
+                      <p className="external-disclaimer">Not registered on Local Shoppyy</p>
+                      <div className="external-business-actions">
+                        {business.mapsUrl && (
+                          <a href={business.mapsUrl} target="_blank" rel="noreferrer">View on Map</a>
+                        )}
+                        {business.directionsUrl && (
+                          <a href={business.directionsUrl} target="_blank" rel="noreferrer">Get Directions</a>
+                        )}
+                      </div>
+                      <small>
+                        Data provided by <a href={business.attribution.url} target="_blank" rel="noreferrer">{business.attribution.name}</a>.
+                      </small>
+                    </article>
+                  ))}
+                </div>
+              )}
+
+              {!externalLoading && !externalError && externalBusinesses.length === 0 && (
+                <div className="empty-state">
+                  <p>No nearby external businesses were found in this radius.</p>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
       </main>
 
       <footer className="footer">
@@ -660,6 +682,31 @@ function App() {
         path="/products/:id"
         element={<ProductDetails />}
       />
+      <Route path="/search" element={<MarketplaceHome />} />
+      <Route path="/categories" element={<MarketplaceHome />} />
+      <Route path="/login" element={<CustomerLogin />} />
+      <Route path="/register" element={<CustomerRegister />} />
+      <Route path="/customer/login" element={<CustomerLogin />} />
+      <Route path="/customer/register" element={<CustomerRegister />} />
+      <Route path="/business/login" element={<BusinessLogin />} />
+      <Route path="/business/register" element={<BusinessRegister />} />
+      <Route element={<ProtectedRoute />}>
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/cart" element={<CartPage />} />
+        <Route path="/favorites" element={<Favorites />} />
+        <Route path="/profile/addresses" element={<Addresses />} />
+        <Route path="/checkout" element={<Checkout />} />
+        <Route path="/orders" element={<Orders />} />
+        <Route path="/reservations" element={<Reservations />} />
+        <Route element={<RoleRoute allowedRoles={['BUSINESS_OWNER', 'ADMIN']} />}>
+          <Route path="/business/dashboard" element={<BusinessDashboard />} />
+          <Route path="/business/products" element={<BusinessProducts />} />
+          <Route path="/business/orders" element={<BusinessOrders />} />
+        </Route>
+        <Route element={<RoleRoute allowedRoles={['ADMIN']} />}>
+          <Route path="/control-panel" element={<AdminOverview />} />
+        </Route>
+      </Route>
     </Routes>
   );
 }

@@ -1,0 +1,10 @@
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { register } from '../api/auth.api';
+import Header from '../components/layout/Header';
+
+export default function CustomerRegister() {
+  const navigate = useNavigate(); const [error, setError] = useState(''); const [loading, setLoading] = useState(false);
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); const password = String(form.get('password')); if (password !== form.get('confirmPassword')) { setError('Passwords must match.'); return; } setLoading(true); setError(''); try { await register({ firstName: String(form.get('firstName')), lastName: String(form.get('lastName') || ''), email: String(form.get('email')), phone: String(form.get('phone') || ''), password }); navigate('/customer/login'); } catch { setError('Unable to create your account. The email may already be registered.'); } finally { setLoading(false); } };
+  return <div className="auth-page app"><Header /><main className="auth-shell"><section className="auth-card"><div className="section-label">CUSTOMER ACCESS</div><h1>Create Customer Account</h1><form onSubmit={submit}><label>First name<input name="firstName" required /></label><label>Last name<input name="lastName" /></label><label>Email<input name="email" type="email" required /></label><label>Phone<input name="phone" /></label><label>Password<input name="password" type="password" minLength={8} required /></label><label>Confirm password<input name="confirmPassword" type="password" minLength={8} required /></label><label className="choice-row"><input name="terms" type="checkbox" required /> I accept the terms and privacy policy</label>{error && <div className="error-message">{error}</div>}<button className="search-button auth-submit" disabled={loading}>{loading ? 'Creating account...' : 'Create account'}</button></form><p className="auth-switch"><Link to="/customer/login">Already a customer? Sign in</Link> · <Link to="/business/register">Register your business</Link></p></section></main></div>;
+}

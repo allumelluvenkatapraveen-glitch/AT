@@ -1,52 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import axios from 'axios';
-
-const API_URL = 'http://localhost:3000/api';
-
-interface Category {
-  id: string;
-  name: string;
-  slug: string;
-}
-
-interface ProductDetailsData {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  sku: string | null;
-  price: number;
-  currencyCode: string;
-  status: string;
-
-  category: Category | null;
-
-  inventory: {
-    quantity: number;
-    isInStock: boolean;
-  };
-
-  business: {
-    id: string;
-    name: string;
-    slug: string;
-    description: string | null;
-  };
-
-  location: {
-    id: string;
-    name: string | null;
-    addressLine1: string;
-    addressLine2: string | null;
-    city: string;
-    state: string | null;
-    postalCode: string | null;
-    countryCode: string;
-    latitude: number;
-    longitude: number;
-  };
-}
+import { getProduct } from './api/catalog.api';
+import type { ProductDetailsData } from './types/catalog';
+import Header from './components/layout/Header';
 
 function ProductDetails() {
   const { id } = useParams<{ id: string }>();
@@ -69,12 +25,7 @@ function ProductDetails() {
         setLoading(true);
         setError('');
 
-        const response =
-          await axios.get<ProductDetailsData>(
-            `${API_URL}/products/${id}`,
-          );
-
-        setProduct(response.data);
+        setProduct(await getProduct(id));
       } catch {
         setError('Unable to load this product.');
       } finally {
@@ -103,6 +54,7 @@ function ProductDetails() {
   if (loading) {
     return (
       <div className="app">
+        <Header />
         <main>
           <section className="products-section">
             <div className="section-container">
@@ -120,6 +72,7 @@ function ProductDetails() {
   if (error || !product) {
     return (
       <div className="app">
+        <Header />
         <main>
           <section className="products-section">
             <div className="section-container">
@@ -161,49 +114,7 @@ function ProductDetails() {
 
   return (
     <div className="app">
-      <header className="header">
-        <div className="header-inner">
-          <Link
-            to="/"
-            className="brand"
-            style={{
-              textDecoration: 'none',
-              color: 'inherit',
-            }}
-          >
-            <div className="brand-icon">
-              L
-            </div>
-
-            <div>
-              <div className="brand-name">
-                Local Shoppyy
-              </div>
-
-              <div className="brand-tagline">
-                Shop local. Find nearby.
-              </div>
-            </div>
-          </Link>
-
-          <nav className="nav">
-            <Link to="/">Discover</Link>
-            <button type="button">
-              Businesses
-            </button>
-            <button type="button">
-              About
-            </button>
-          </nav>
-
-          <button
-            className="sign-in"
-            type="button"
-          >
-            Sign in
-          </button>
-        </div>
-      </header>
+      <Header />
 
       <main>
         <section className="product-details-section">
@@ -317,20 +228,20 @@ function ProductDetails() {
                       !product.inventory.isInStock
                     }
                   >
-                    Reserve / Order
+                    Ordering is not available yet
                   </button>
 
                   <button
                     type="button"
                     className="nearby-button"
                   >
-                    Contact Shop
+                    Contact details unavailable
                   </button>
                 </div>
 
                 <div className="details-note">
-                  Pickup and delivery options will
-                  be available during ordering.
+                  Pickup, delivery, reservations and checkout are not
+                  exposed by the current API yet.
                 </div>
               </div>
             </div>
